@@ -13,8 +13,7 @@ export_env_dir() {
   fi
 }
 
-get_play_version()
-{
+get_play_version() {
   local file=${1?"No file specified"}
 
   if [ ! -f $file ]; then
@@ -24,8 +23,7 @@ get_play_version()
   grep -P '.*-.*play[ \t]+[0-9\.]' ${file} | sed -E -e 's/[ \t]*-[ \t]*play[ \t]+([0-9A-Za-z\.]*).*/\1/'
 }
 
-check_compile_status()
-{
+check_compile_status() {
   if [ "${PIPESTATUS[*]}" != "0 0" ]; then
     echo " !     Failed to build Play! application"
     rm -rf $CACHE_DIR/$PLAY_PATH
@@ -40,6 +38,8 @@ download_play_official() {
   local playZipFile="play-${playVersion}.zip"
   #local playUrl="https://downloads.typesafe.com/play/${playVersion}/${playZipFile}"
   local playUrl="http://artifactory.bnsf.com:8081/artifactory/repo/play/play/${playVersion}/${playZipFile}"
+  
+  echo "-----> Download Play from: ${playUrl}"
 
   status=$(curl --retry 3 --head -w %{http_code} -L ${playUrl} -o /dev/null)
   if [ "$status" != "200" ]; then
@@ -49,6 +49,12 @@ download_play_official() {
     echo "Downloading ${playZipFile} from ${playUrl}"
     curl --connect-timeout 300 --retry 3 -O -L ${playUrl}
   fi
+  
+  #log zip file contents when small (typically network connectivity issues are involved, so the content is meaningful)
+  local playZipFileSize=$(wc -c < "${playZipFile}")
+  if [ $playZipFileSize -le 4000 ]; then
+    head --bytes 4K ${playZipFile}
+  fi
 
   # create tar file
   echo "Preparing binary package..."
@@ -56,7 +62,8 @@ download_play_official() {
   mkdir -p ${playUnzipDir}
   unzip ${playZipFile} -d ${playUnzipDir} > /dev/null 2>&1
 
-  PLAY_BUILD_DIR=$(find -name 'framework' -type d | sed 's/framework//')
+  PLAY_BUILD_DIR="${playUnzipDir}/play-${playVersion}/"
+  echo $PLAY_BUILD_DIR
 
   mkdir -p tmp/.play/framework/src/play
 
@@ -88,6 +95,8 @@ download_play_official() {
 
 validate_play_version() {
   local playVersion=${1}
+  
+  echo "-----> Validating Play Version ${playVersion}"
 
   if [ "1.4.0" == "${playVersion}" ] || [ "1.3.2" == "${playVersion}" ]; then
     error "Unsupported version!
@@ -101,34 +110,29 @@ https://devcenter.heroku.com/articles/scala-support"
   fi
 }
 
-install_play()
-{
+install_play() {
   VER_TO_INSTALL=$1
-  PLAY_URL="https://s3.amazonaws.com/heroku-jvm-langpack-play/play-heroku-$VER_TO_INSTALL.tar.gz"
+  PLAY_ZIP_FILE="play-${VER_TO_INSTALL}.zip"
+  PLAY_URL="http://artifactory.bnsf.com:8081/artifactory/repo/play/play/$VER_TO_INSTALL/$PLAY_ZIP_FILE"
   PLAY_TAR_FILE="play-heroku.tar.gz"
-
-  validate_play_version ${VER_TO_INSTALL}
 
   echo "-----> Installing Play! $VER_TO_INSTALL....."
 
-  status=$(curl --retry 3 --silent --head -w %{http_code} -L ${PLAY_URL} -o /dev/null)
-  if [ "$status" != "200" ]; then
-    download_play_official ${VER_TO_INSTALL} ${PLAY_TAR_FILE}
-  else
-    curl --retry 3 -s --max-time 150 -L $PLAY_URL -o $PLAY_TAR_FILE
-  fi
-
+  validate_play_version ${VER_TO_INSTALL}
+  
+  download_play_official ${VER_TO_INSTALL} ${PLAY_TAR_FILE}
+  
   if [ ! -f $PLAY_TAR_FILE ]; then
     echo "-----> Error downloading Play! framework. Please try again..."
     exit 1
   fi
   if [ -z "`file $PLAY_TAR_FILE | grep gzip`" ]; then
-    error "Failed to install Play! framework or unsupported Play! framework version specified.
-Please review Dev Center for a list of supported versions."
+    error "Failed to install Play! framework or unsupported Play! framework version specified."
     exit 1
   fi
   tar xzmf $PLAY_TAR_FILE
   rm $PLAY_TAR_FILE
   chmod +x $PLAY_PATH/play
-  echo "Done installing Play!" | indent
+  
+  echo "Done installing Play ${VER_TO_INSTALL}!" | indent
 }
